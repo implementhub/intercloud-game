@@ -252,6 +252,11 @@ def start_server(port, name):
 def send_to_peer(target_url, path, payload):
     print("send_to_peer")
 
+    context = ssl.create_default_context()
+    context.load_cert_chain(f'{CERTS_PATH}/svid.pem', f'{CERTS_PATH}/svid_key.pem')
+    context.load_verify_locations(f'{CERTS_PATH}/svid_bundle.pem')
+    context.check_hostname = False
+
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
         f"{target_url}{path}",
@@ -259,7 +264,7 @@ def send_to_peer(target_url, path, payload):
         headers={"Content-Type": "application/json"},
         method="POST"
     )
-    with urllib.request.urlopen(req) as r:
+    with urllib.request.urlopen(req, context=context) as r:
         response = r.read()
     return response
 
@@ -307,10 +312,6 @@ def ping_target(target_url, name):
     action = ""
     while action != "x" and not gameActive:
         try:
-            context = ssl.create_default_context()
-            context.load_cert_chain(f'{CERTS_PATH}/svid.pem', f'{CERTS_PATH}/svid_key.pem')
-            context.load_verify_locations(f'{CERTS_PATH}/svid_bundle.pem')
-            context.check_hostname = False
             print("n für neues spiel beginnen und x für beenden")
             action = input("Was möchtest du tun? n/x: ")
             if action == "n":
