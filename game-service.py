@@ -221,7 +221,7 @@ class PingHandler(BaseHTTPRequestHandler):
 def get_own_spiffe_id():
     try:
         result = subprocess.run(
-            ['openssl', 'x509', '-in', '{CERTS_PATH}/svid.pem', '-text', '-noout'],
+            ['openssl', 'x509', '-in', f'{CERTS_PATH}/svid.pem', '-text', '-noout'],
             capture_output=True, text=True, check=True
         )
         for line in result.stdout.split('\n'):
@@ -236,8 +236,8 @@ def get_own_spiffe_id():
 def start_server(port, name):
 
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    context.load_cert_chain('{CERTS_PATH}/svid.pem', '{CERTS_PATH}/svid_key.pem')
-    context.load_verify_locations('{CERTS_PATH}/svid_bundle.pem')
+    context.load_cert_chain(f'{CERTS_PATH}/svid.pem', f'{CERTS_PATH}/svid_key.pem')
+    context.load_verify_locations(f'{CERTS_PATH}/svid_bundle.pem')
     context.verify_mode = ssl.CERT_REQUIRED
 
     server = ThreadingHTTPServer(('localhost', port), PingHandler)
@@ -308,8 +308,8 @@ def ping_target(target_url, name):
     while action != "x" and not gameActive:
         try:
             context = ssl.create_default_context()
-            context.load_cert_chain('{CERTS_PATH}/svid.pem', '{CERTS_PATH}/svid_key.pem')
-            context.load_verify_locations('{CERTS_PATH}/svid_bundle.pem')
+            context.load_cert_chain(f'{CERTS_PATH}/svid.pem', f'{CERTS_PATH}/svid_key.pem')
+            context.load_verify_locations(f'{CERTS_PATH}/svid_bundle.pem')
             context.check_hostname = False
             print("n für neues spiel beginnen und x für beenden")
             action = input("Was möchtest du tun? n/x: ")
@@ -350,7 +350,7 @@ def main():
     parser.add_argument('--name', type=str, required=True)
     args = parser.parse_args()
 
-    if not all(os.path.exists(f'certs/{f}') for f in ['svid.pem', 'svid_key.pem', 'svid_bundle.pem']):
+    if not all(os.path.exists(f'{CERTS_PATH}/{f}') for f in ['svid.pem', 'svid_key.pem', 'svid_bundle.pem']):
         print("Error: Certificate files not found. Run spiffe-helper first.")
         return 1
 
