@@ -2,6 +2,7 @@
 
 import json
 import ssl
+import subprocess
 import time
 import urllib.request
 import argparse
@@ -31,6 +32,14 @@ def make_commitment(move, salt):
 def verify_commitment(move, salt, commitment):
     return make_commitment(move, salt) == commitment
 
+def get_spiffe_id_opponent(self):
+    peer_cert = self.connection.getpeercert()
+    san = None
+    if peer_cert and 'subjectAltName' in peer_cert:
+        for entry in peer_cert['subjectAltName']:
+            if entry[0] == 'URI':
+                san = entry[1]
+                return san
 
 # --------- decide game winner
 def decide(a, b):
@@ -70,14 +79,14 @@ class PingHandler(BaseHTTPRequestHandler):
 
         if data["type"] == "challenge":
             print("handle type challenge")
-            self.handle_challenge(data, "<peer_id>")
+            self.handle_challenge(data, get_spiffe_id_opponent(self))
 
         elif data["type"] == "response":
             print("handle type response")
-            self.handle_response(data, "<peer_id>")
+            self.handle_response(data, get_spiffe_id_opponent(self))
 
         elif data["type"] == "reveal":
-            self.handle_reveal(data, "<peer_id>")
+            self.handle_reveal(data, get_spiffe_id_opponent(self))
 
         else:
             print("Type nicht gefunden")
@@ -208,7 +217,6 @@ class PingHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-'''
 def get_own_spiffe_id():
     try:
         result = subprocess.run(
@@ -221,22 +229,21 @@ def get_own_spiffe_id():
     except Exception as e:
         return "unknown"
     return "unknown"
-'''
+
 
 
 def start_server(port, name):
-    '''
+
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     context.load_cert_chain('certs/svid.pem', 'certs/svid_key.pem')
     context.load_verify_locations('certs/svid_bundle.pem')
     context.verify_mode = ssl.CERT_REQUIRED
-    '''
 
     server = ThreadingHTTPServer(('localhost', port), PingHandler)
-    #server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
     
-    #own_id = get_own_spiffe_id()
-    #print(f"[{name}] Server started (SPIFFE ID: {own_id})")
+    own_id = get_own_spiffe_id()
+    print(f"[{name}] Server started (SPIFFE ID: {own_id})")
     print(f"[{name}] Listening on port {port}")
     server.serve_forever()
 
@@ -299,6 +306,10 @@ def ping_target(target_url, name):
     action = ""
     while action != "x" and not gameActive:
         try:
+            context = ssl.create_default_context()
+            context.load_cert_chain('certs/svid.pem', 'certs/svid_key.pem')
+            context.load_verify_locations('certs/svid_bundle.pem')
+            context.check_hostname = False
             print("n für neues spiel beginnen und x für beenden")
             action = input("Was möchtest du tun? n/x: ")
             if action == "n":
@@ -338,9 +349,9 @@ def main():
     parser.add_argument('--name', type=str, required=True)
     args = parser.parse_args()
 
-    #if not all(os.path.exists(f'certs/{f}') for f in ['svid.pem', 'svid_key.pem', 'svid_bundle.pem']):
-        #print("Error: Certificate files not found. Run spiffe-helper first.")
-        #return 1
+    if not all(os.path.exists(f'certs/{f}') for f in ['svid.pem', 'svid_key.pem', 'svid_bundle.pem']):
+        print("Error: Certificate files not found. Run spiffe-helper first.")
+        return 1
 
     threading.Thread(target=start_server, args=(args.port, args.name), daemon=True).start()
     time.sleep(1)
