@@ -19,7 +19,7 @@ current_game = {}
 
 CERTS_PATH = "intercloud-game/certs"
 MOVES = ["rock", "paper", "scissors"]
-gameActive = False
+game_active = False
 target_url = ""
 
 games = {}   # game_id -> game state
@@ -144,8 +144,8 @@ class PingHandler(BaseHTTPRequestHandler):
 
         print(f"[SCORE] {peer_id}: {scores[peer_id]}")
 
-        global gameActive
-        gameActive = False
+        global game_active
+        game_active = False
 
         self.respond({"status": "ok"})
 
@@ -185,35 +185,10 @@ class PingHandler(BaseHTTPRequestHandler):
 
 
     def respond(self, payload):
-        print("respond..")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps(payload).encode())
-
-    def do_GET(self):
-        if self.path == '/ping':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-
-            san = "der andere"
-            '''
-            peer_cert = self.connection.getpeercert()
-            san = None
-            if peer_cert and 'subjectAltName' in peer_cert:
-                for entry in peer_cert['subjectAltName']:
-                    if entry[0] == 'URI':
-                        san = entry[1]
-                        break
-            '''
-            response_msg = f'pong from {san}' if san else 'pong'
-            self.wfile.write(response_msg.encode())
-            
-            print(f"✓ Received ping from {self.client_address[0]} - Peer: {san}")
-        else:
-            self.send_response(404)
-            self.end_headers()
 
     def log_message(self, format, *args):
         pass
@@ -230,7 +205,6 @@ def get_own_spiffe_id():
     except Exception as e:
         return "unknown"
     return "unknown"
-
 
 
 def start_server(port, name):
@@ -271,8 +245,8 @@ def send_to_peer(target_url, path, payload):
 # ---------- Game flow ----------
 def start_new_round(target_url, peer_id):
     print("start_new_round")
-    global gameActive
-    gameActive = True
+    global game_active
+    game_active = True
     move = secrets.choice(MOVES)
     salt = secrets.token_hex(8)
     commitment = make_commitment(move, salt)
@@ -295,22 +269,13 @@ def start_new_round(target_url, peer_id):
     print(f"[CLIENT] Received response: {response.decode()}")
 
 
-def sendPing(target_url, name):
-    req = urllib.request.Request(f'{target_url}/ping') 
-    with urllib.request.urlopen(req, timeout=5) as response:
-        result = response.read().decode()
-        print(f"[{name}] ✓ Cross-domain ping successful!")
-        print(f"[{name}]   → Response: {result}")
-
-
-
-def ping_target(target_url, name):
-    #own_id = get_own_spiffe_id()
-    print(f"[{name}] My SPIFFE ID: {'<own_id>'}")
+def start_game(target_url, name):
+    own_id = get_own_spiffe_id()
+    print(f"[{name}] My SPIFFE ID: {own_id}")
     time.sleep(2)
     
     action = ""
-    while action != "x" and not gameActive:
+    while action != "x" and not game_active:
         try:
             print("n für neues spiel beginnen und x für beenden")
             action = input("Was möchtest du tun? n/x: ")
@@ -324,25 +289,6 @@ def ping_target(target_url, name):
     
     print("Spiel beendet")
 
-'''
-    while True:
-        try:
-            context = ssl.create_default_context()
-            context.load_cert_chain('certs/svid.pem', 'certs/svid_key.pem')
-            context.load_verify_locations('certs/svid_bundle.pem')
-            context.check_hostname = False
-
-            req = urllib.request.Request(f'{target_url}/ping')
-            with urllib.request.urlopen(req, context=context, timeout=5) as response:
-                result = response.read().decode()
-                print(f"[{name}] ✓ Cross-domain ping successful!")
-                print(f"[{name}]   → Response: {result}")
-
-        except Exception as e:
-            print(f"[{name}] ✗ Ping failed: {e}")
-
-        time.sleep(5)
-'''
 
 def main():
     parser = argparse.ArgumentParser()
@@ -359,7 +305,7 @@ def main():
     time.sleep(1)
     global target_url
     target_url = args.target
-    ping_target(args.target, args.name)
+    start_game(args.target, args.name)
 
 if __name__ == '__main__':
     main()
