@@ -17,7 +17,7 @@ from http.server import ThreadingHTTPServer
 # game state
 current_game = {}
 
-
+CERTS_PATH = "intercloud-game/certs"
 MOVES = ["rock", "paper", "scissors"]
 gameActive = False
 target_url = ""
@@ -221,7 +221,7 @@ class PingHandler(BaseHTTPRequestHandler):
 def get_own_spiffe_id():
     try:
         result = subprocess.run(
-            ['openssl', 'x509', '-in', 'certs/svid.pem', '-text', '-noout'],
+            ['openssl', 'x509', '-in', '{CERTS_PATH}/svid.pem', '-text', '-noout'],
             capture_output=True, text=True, check=True
         )
         for line in result.stdout.split('\n'):
@@ -236,8 +236,8 @@ def get_own_spiffe_id():
 def start_server(port, name):
 
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    context.load_cert_chain('certs/svid.pem', 'certs/svid_key.pem')
-    context.load_verify_locations('certs/svid_bundle.pem')
+    context.load_cert_chain('{CERTS_PATH}/svid.pem', '{CERTS_PATH}/svid_key.pem')
+    context.load_verify_locations('{CERTS_PATH}/svid_bundle.pem')
     context.verify_mode = ssl.CERT_REQUIRED
 
     server = ThreadingHTTPServer(('localhost', port), PingHandler)
@@ -308,8 +308,8 @@ def ping_target(target_url, name):
     while action != "x" and not gameActive:
         try:
             context = ssl.create_default_context()
-            context.load_cert_chain('certs/svid.pem', 'certs/svid_key.pem')
-            context.load_verify_locations('certs/svid_bundle.pem')
+            context.load_cert_chain('{CERTS_PATH}/svid.pem', '{CERTS_PATH}/svid_key.pem')
+            context.load_verify_locations('{CERTS_PATH}/svid_bundle.pem')
             context.check_hostname = False
             print("n für neues spiel beginnen und x für beenden")
             action = input("Was möchtest du tun? n/x: ")
