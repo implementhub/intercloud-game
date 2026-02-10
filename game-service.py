@@ -8,6 +8,7 @@ import urllib.request
 import argparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import os
 import secrets
 import hashlib
 from http.server import ThreadingHTTPServer
