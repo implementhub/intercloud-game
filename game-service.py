@@ -315,7 +315,7 @@ def start_public_https_server(httpport):
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     context.load_cert_chain(
         "/home/azureuser/acme-lab/04-finalize/http-certificate.pem",
-        "/home/azureuser/acme-lab/04-finalize/http-private-key.pem"
+        "/home/azureuser/acme-lab/04-finalize/domain-key.pem"
     )
 
     server = ThreadingHTTPServer(("0.0.0.0", httpport), PublicScoreHandler)
