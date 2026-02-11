@@ -347,40 +347,43 @@ class PublicScoreHandler(BaseHTTPRequestHandler):
             "scores": scores
         }).encode())
 
-def start_public_https_server():
+def start_public_https_server(httpport):
     #context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     #context.load_cert_chain(
     #    "/home/azureuser/acme-lab/04-finalize/http-certificate.pem",
     #    "/home/azureuser/acme-lab/04-finalize/http-private-key.pem"
     #)
 
-    server = ThreadingHTTPServer(("0.0.0.0", 443), PublicScoreHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", httpport), PublicScoreHandler)
     #server.socket = context.wrap_socket(server.socket, server_side=True)
 
-    print("[PUBLIC] HTTPS score endpoint listening on :443")
+    print(f"[PUBLIC] HTTPS score endpoint listening on :{httpport}")
     server.serve_forever()
 
 
 
 def main():
 
-    ###### START HTTP Server
-    print("Start HTTP server")
-    threading.Thread(
-    target=start_public_https_server,
-    daemon=True
-        ).start()
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, required=True)
     parser.add_argument('--target', type=str, required=True)
     parser.add_argument('--name', type=str, required=True)
+    parser.add_argument('--httpport', type=int, default=443)
     args = parser.parse_args()
 
     #if not all(os.path.exists(f'certs/{f}') for f in ['svid.pem', 'svid_key.pem', 'svid_bundle.pem']):
         #print("Error: Certificate files not found. Run spiffe-helper first.")
         #return 1
 
+    ###### START HTTP Server
+    print("Start HTTP server")
+    threading.Thread(
+        target=start_public_https_server,
+        args=(args.httpport,),
+        daemon=True
+    ).start()
+
+    ###### Start Game Server
     threading.Thread(target=start_server, args=(args.port, args.name), daemon=True).start()
     time.sleep(1)
     
