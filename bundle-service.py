@@ -60,11 +60,7 @@ def main():
     args = parser.parse_args()
 
     print("Start Bundle Download Server")
-    threading.Thread(
-        target=start_public_https_server,
-        args=(args.port,),
-        daemon=True
-    ).start()
+    start_public_https_server(args.port)
 
 if __name__ == '__main__':
     main()
