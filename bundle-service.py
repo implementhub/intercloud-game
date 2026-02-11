@@ -62,7 +62,7 @@ def main():
     print("Start Bundle Download Server")
     threading.Thread(
         target=start_public_https_server,
-        args=(args.httpport,),
+        args=(args.port,),
         daemon=True
     ).start()
 
