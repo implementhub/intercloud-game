@@ -2,11 +2,13 @@
 
 import json
 import ssl
+import subprocess
 import time
 import urllib.request
 import argparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import os
 import secrets
 import hashlib
 from http.server import ThreadingHTTPServer
@@ -15,9 +17,9 @@ from http.server import ThreadingHTTPServer
 # game state
 current_game = {}
 
-
+CERTS_PATH = "certs"
 MOVES = ["rock", "paper", "scissors"]
-gameActive = False
+game_active = False
 target_url = ""
 
 games = {}   # game_id -> game state
@@ -31,6 +33,14 @@ def make_commitment(move, salt):
 def verify_commitment(move, salt, commitment):
     return make_commitment(move, salt) == commitment
 
+def get_spiffe_id_opponent(self):
+    peer_cert = self.connection.getpeercert()
+    san = None
+    if peer_cert and 'subjectAltName' in peer_cert:
+        for entry in peer_cert['subjectAltName']:
+            if entry[0] == 'URI':
+                san = entry[1]
+                return san
 
 # --------- decide game winner
 def decide(a, b):
@@ -70,14 +80,14 @@ class PingHandler(BaseHTTPRequestHandler):
 
         if data["type"] == "challenge":
             print("handle type challenge")
-            self.handle_challenge(data, "<peer_id>")
+            self.handle_challenge(data, get_spiffe_id_opponent(self))
 
         elif data["type"] == "response":
             print("handle type response")
-            self.handle_response(data, "<peer_id>")
+            self.handle_response(data, get_spiffe_id_opponent(self))
 
         elif data["type"] == "reveal":
-            self.handle_reveal(data, "<peer_id>")
+            self.handle_reveal(data, get_spiffe_id_opponent(self))
 
         else:
             print("Type nicht gefunden")
@@ -134,8 +144,8 @@ class PingHandler(BaseHTTPRequestHandler):
 
         print(f"[SCORE] {peer_id}: {scores[peer_id]}")
 
-        global gameActive
-        gameActive = False
+        global game_active
+        game_active = False
 
         self.respond({"status": "ok"})
 
@@ -166,11 +176,7 @@ class PingHandler(BaseHTTPRequestHandler):
 
         result = decide(own_move, opponent_move)
         print(f"[RESULT] {own_move} vs {opponent_move} → {result}")
-
-        if(result == "tie"):
-            print("Start new game...")
-            start_new_round(target_url, peer_id)
-
+            
         save_score(result, peer_id)
 
         print(f"[SCORE] {peer_id}: {scores[peer_id]}")
@@ -184,38 +190,13 @@ class PingHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(payload).encode())
 
-    def do_GET(self):
-        if self.path == '/ping':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-
-            san = "der andere"
-            '''
-            peer_cert = self.connection.getpeercert()
-            san = None
-            if peer_cert and 'subjectAltName' in peer_cert:
-                for entry in peer_cert['subjectAltName']:
-                    if entry[0] == 'URI':
-                        san = entry[1]
-                        break
-            '''
-            response_msg = f'pong from {san}' if san else 'pong'
-            self.wfile.write(response_msg.encode())
-            
-            print(f"✓ Received ping from {self.client_address[0]} - Peer: {san}")
-        else:
-            self.send_response(404)
-            self.end_headers()
-
     def log_message(self, format, *args):
         pass
 
-'''
 def get_own_spiffe_id():
     try:
         result = subprocess.run(
-            ['openssl', 'x509', '-in', 'certs/svid.pem', '-text', '-noout'],
+            ['openssl', 'x509', '-in', f'{CERTS_PATH}/svid.pem', '-text', '-noout'],
             capture_output=True, text=True, check=True
         )
         for line in result.stdout.split('\n'):
@@ -224,28 +205,31 @@ def get_own_spiffe_id():
     except Exception as e:
         return "unknown"
     return "unknown"
-'''
 
 
 def start_server(port, name):
-    '''
+
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    context.load_cert_chain('certs/svid.pem', 'certs/svid_key.pem')
-    context.load_verify_locations('certs/svid_bundle.pem')
+    context.load_cert_chain(f'{CERTS_PATH}/svid.pem', f'{CERTS_PATH}/svid_key.pem')
+    context.load_verify_locations(f'{CERTS_PATH}/svid_bundle.pem')
     context.verify_mode = ssl.CERT_REQUIRED
-    '''
 
     server = ThreadingHTTPServer(('localhost', port), PingHandler)
-    #server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
     
-    #own_id = get_own_spiffe_id()
-    #print(f"[{name}] Server started (SPIFFE ID: {own_id})")
+    own_id = get_own_spiffe_id()
+    print(f"[{name}] Server started (SPIFFE ID: {own_id})")
     print(f"[{name}] Listening on port {port}")
     server.serve_forever()
 
 
 def send_to_peer(target_url, path, payload):
     print("send_to_peer")
+
+    context = ssl.create_default_context()
+    context.load_cert_chain(f'{CERTS_PATH}/svid.pem', f'{CERTS_PATH}/svid_key.pem')
+    context.load_verify_locations(f'{CERTS_PATH}/svid_bundle.pem')
+    context.check_hostname = False
 
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
@@ -254,15 +238,15 @@ def send_to_peer(target_url, path, payload):
         headers={"Content-Type": "application/json"},
         method="POST"
     )
-    with urllib.request.urlopen(req) as r:
+    with urllib.request.urlopen(req, context=context) as r:
         response = r.read()
     return response
 
 # ---------- Game flow ----------
 def start_new_round(target_url, peer_id):
     print("start_new_round")
-    global gameActive
-    gameActive = True
+    global game_active
+    game_active = True
     move = secrets.choice(MOVES)
     salt = secrets.token_hex(8)
     commitment = make_commitment(move, salt)
@@ -285,22 +269,13 @@ def start_new_round(target_url, peer_id):
     print(f"[CLIENT] Received response: {response.decode()}")
 
 
-def sendPing(target_url, name):
-    req = urllib.request.Request(f'{target_url}/ping') 
-    with urllib.request.urlopen(req, timeout=5) as response:
-        result = response.read().decode()
-        print(f"[{name}] ✓ Cross-domain ping successful!")
-        print(f"[{name}]   → Response: {result}")
-
-
-
-def ping_target(target_url, name):
-    #own_id = get_own_spiffe_id()
-    print(f"[{name}] My SPIFFE ID: {'<own_id>'}")
+def start_game(target_url, name):
+    own_id = get_own_spiffe_id()
+    print(f"[{name}] My SPIFFE ID: {own_id}")
     time.sleep(2)
     
     action = ""
-    while action != "x" and not gameActive:
+    while action != "x" and not game_active:
         try:
             print("n für neues spiel beginnen und x für beenden")
             action = input("Was möchtest du tun? n/x: ")
@@ -314,55 +289,6 @@ def ping_target(target_url, name):
     
     print("Spiel beendet")
 
-'''
-    while True:
-        try:
-            context = ssl.create_default_context()
-            context.load_cert_chain('certs/svid.pem', 'certs/svid_key.pem')
-            context.load_verify_locations('certs/svid_bundle.pem')
-            context.check_hostname = False
-
-            req = urllib.request.Request(f'{target_url}/ping')
-            with urllib.request.urlopen(req, context=context, timeout=5) as response:
-                result = response.read().decode()
-                print(f"[{name}] ✓ Cross-domain ping successful!")
-                print(f"[{name}]   → Response: {result}")
-
-        except Exception as e:
-            print(f"[{name}] ✗ Ping failed: {e}")
-
-        time.sleep(5)
-'''
-
-class PublicScoreHandler(BaseHTTPRequestHandler):
-
-    def do_GET(self):
-        if self.path != "/score":
-            self.send_response(404)
-            self.end_headers()
-            return
-
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-
-        self.wfile.write(json.dumps({
-            "scores": scores
-        }).encode())
-
-def start_public_https_server(httpport):
-    #context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    #context.load_cert_chain(
-    #    "/home/azureuser/acme-lab/04-finalize/http-certificate.pem",
-    #    "/home/azureuser/acme-lab/04-finalize/http-private-key.pem"
-    #)
-
-    server = ThreadingHTTPServer(("0.0.0.0", httpport), PublicScoreHandler)
-    #server.socket = context.wrap_socket(server.socket, server_side=True)
-
-    print(f"[PUBLIC] HTTPS score endpoint listening on :{httpport}")
-    server.serve_forever()
-
 
 
 def main():
@@ -371,28 +297,18 @@ def main():
     parser.add_argument('--port', type=int, required=True)
     parser.add_argument('--target', type=str, required=True)
     parser.add_argument('--name', type=str, required=True)
-    parser.add_argument('--httpport', type=int, default=443)
     args = parser.parse_args()
 
-    #if not all(os.path.exists(f'certs/{f}') for f in ['svid.pem', 'svid_key.pem', 'svid_bundle.pem']):
-        #print("Error: Certificate files not found. Run spiffe-helper first.")
-        #return 1
+    if not all(os.path.exists(f'{CERTS_PATH}/{f}') for f in ['svid.pem', 'svid_key.pem', 'svid_bundle.pem']):
+        print("Error: Certificate files not found. Run spiffe-helper first.")
+        return 1
 
-    ###### START HTTP Server
-    print("Start HTTP server")
-    threading.Thread(
-        target=start_public_https_server,
-        args=(args.httpport,),
-        daemon=True
-    ).start()
-
-    ###### Start Game Server
+    ####### Start Game Server
     threading.Thread(target=start_server, args=(args.port, args.name), daemon=True).start()
     time.sleep(1)
-    
     global target_url
     target_url = args.target
-    ping_target(args.target, args.name)
+    start_game(args.target, args.name)
 
 if __name__ == '__main__':
     main()

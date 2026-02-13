@@ -176,10 +176,6 @@ class PingHandler(BaseHTTPRequestHandler):
 
         result = decide(own_move, opponent_move)
         print(f"[RESULT] {own_move} vs {opponent_move} → {result}")
-
-        if(result == "tie"):
-            print("Start new game...")
-            start_new_round(target_url, peer_id)
             
         save_score(result, peer_id)
 
