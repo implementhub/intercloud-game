@@ -305,10 +305,8 @@ def start_server(port, name):
 
 def start_game(target_url, name):
     own_id = get_own_spiffe_id()
-    print(f"[{name}] My SPIFFE ID: {own_id}")
+    print(f"[{name}] Game Booted My SPIFFE ID: {own_id}")
     time.sleep(2)
-
-    logger.info(f"[BOOT] Player started → {args.name}")
     
     action = ""
     while action != "x" and not game_active:
