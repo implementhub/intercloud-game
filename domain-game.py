@@ -17,7 +17,7 @@ from http.server import ThreadingHTTPServer
 # game state
 current_game = {}
 
-CERTS_PATH = "certs"
+CERTS_PATH = "intercloud-game/certs"
 MOVES = ["rock", "paper", "scissors"]
 game_active = False
 target_url = ""
