@@ -338,13 +338,3 @@ The project successfully implements:
 * ACME-secured public HTTPS endpoints
 * Cross-domain authenticated gameplay
 
-All core requirements have been fully implemented and tested.
-
----
-
-If you want, I can also provide:
-
-* A shorter README version (for public repo)
-* A more technical version (for grading)
-* Diagrams in Markdown (Mermaid)
-* A “How to Run” section added at the top
