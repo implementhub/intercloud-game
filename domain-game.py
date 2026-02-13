@@ -12,6 +12,19 @@ import os
 import secrets
 import hashlib
 from http.server import ThreadingHTTPServer
+import logging
+
+# =========================
+# Logging Setup
+# =========================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-7s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+logger = logging.getLogger("game-service")
 
 
 # game state
@@ -244,14 +257,15 @@ def send_to_peer(target_url, path, payload):
 
 # ---------- Game flow ----------
 def start_new_round(target_url, peer_id):
-    print("start_new_round")
+    logger.info("[GAME] New round started")
     global game_active
     game_active = True
     move = secrets.choice(MOVES)
     salt = secrets.token_hex(8)
     commitment = make_commitment(move, salt)
 
-    print(f"[CLIENT] New round → {move}")
+    logger.info(f"[MOVE] Selected move: {move}")
+    logger.info(f"[COMMIT] Commitment created: {commitment[:10]}...")
 
     current_game.clear()
     current_game.update({

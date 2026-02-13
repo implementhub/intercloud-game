@@ -10,6 +10,19 @@ import threading
 import secrets
 import hashlib
 from http.server import ThreadingHTTPServer
+import logging
+
+# =========================
+# Logging Setup
+# =========================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-7s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+logger = logging.getLogger("game-service")
 
 
 # game state
@@ -60,6 +73,7 @@ def save_score(result, peer_id):
 class PingHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
+        logger.info("test")
         print("receive POST")
         
         length = int(self.headers.get("Content-Length", 0))

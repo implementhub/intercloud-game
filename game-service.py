@@ -12,9 +12,26 @@ import os
 import secrets
 import hashlib
 from http.server import ThreadingHTTPServer
+import logging
+
+# =========================
+# Logging Setup
+# =========================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-7s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+logger = logging.getLogger("game-service")
 
 
-# game state
+
+# =========================
+# Global State
+# =========================
+
 current_game = {}
 
 CERTS_PATH = "intercloud-game/certs"
@@ -25,13 +42,22 @@ target_url = ""
 games = {}   # game_id -> game state
 scores = {}  # spiffe_id -> {wins, losses}
 
-# ---------- Crypto helpers ----------
+
+
+# =========================
+# Crypto Helpers
+# =========================
 
 def make_commitment(move, salt):
     return hashlib.sha256(f"{move}{salt}".encode()).hexdigest()
 
 def verify_commitment(move, salt, commitment):
     return make_commitment(move, salt) == commitment
+
+
+# =========================
+# Game Logic
+# =========================
 
 def get_spiffe_id_opponent(self):
     peer_cert = self.connection.getpeercert()
@@ -41,6 +67,19 @@ def get_spiffe_id_opponent(self):
             if entry[0] == 'URI':
                 san = entry[1]
                 return san
+
+def get_own_spiffe_id():
+    try:
+        result = subprocess.run(
+            ['openssl', 'x509', '-in', f'{CERTS_PATH}/svid.pem', '-text', '-noout'],
+            capture_output=True, text=True, check=True
+        )
+        for line in result.stdout.split('\n'):
+            if 'URI:spiffe://' in line:
+                return line.split('URI:')[1].strip()
+    except Exception as e:
+        return "unknown"
+    return "unknown"
 
 # --------- decide game winner
 def decide(a, b):
@@ -65,42 +104,43 @@ def save_score(result, peer_id):
         scores[peer_id]["losses"] += 1
 
 
-# ------------------ HTTP Handler ------------------
+
+# =========================
+# HTTP Handler
+# =========================
 
 class PingHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
-        print("receive POST")
+        client_ip = self.client_address[0]
         
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length).decode()
         data = json.loads(body)
 
-        print(f"Received type: {data.get('type')}")
+        logger.info(f"[REQUEST] {client_ip} → {data.get('type')}")
 
         if data["type"] == "challenge":
-            print("handle type challenge")
             self.handle_challenge(data, get_spiffe_id_opponent(self))
 
         elif data["type"] == "response":
-            print("handle type response")
             self.handle_response(data, get_spiffe_id_opponent(self))
 
         elif data["type"] == "reveal":
             self.handle_reveal(data, get_spiffe_id_opponent(self))
 
         else:
-            print("Type nicht gefunden")
+            logger.warning(f"[WARNING] Unknown message type: {data.get('type')}")
             self.send_response(400)
             self.end_headers()
 
 
     def handle_challenge(self, data, peer_id):
-        print("handle_challenge...")
-        move = secrets.choice(MOVES)
-        commitment = data["commitment"]
+        logger.info(f"[GAME] Challenge received from {peer_id}")
+        logger.info(f"[COMMIT] Opponent commitment: {data['commitment'][:12]}...")
 
-        print(f"[SERVER] My move: {move}")
+        move = secrets.choice(MOVES)
+        logger.info(f"[MOVE] Generated response move: {move}")
 
         current_game.clear()
         current_game.update({
@@ -113,20 +153,22 @@ class PingHandler(BaseHTTPRequestHandler):
             "move": move
         })
 
+        logger.info("[GAME] Response sent")
+
         self.respond({"status": "ok"})
 
 
     def handle_response(self, data, peer_id):
-        print("handle_response...")
-
         if not current_game:
-            print("⚠️ No active game")
+            logger.warning("[GAME] No active round")
             self.respond({"status": "ignored"})
             return
 
+        logger.info(f"[RESPONSE] Opponent move received: {data['move']}")
+
         current_game["opponent_move"] = data["move"]
 
-        print(f"[CLIENT] Response received → revealing move")
+        logger.info("[REVEAL] Sending reveal")
 
         #breakpoint()
 
@@ -139,8 +181,10 @@ class PingHandler(BaseHTTPRequestHandler):
         status = json.loads(response.decode('utf-8'))["status"]
         if status == "win":
             save_score("loss", peer_id)
-        else:
+        elif status == "loss":
             save_score("win", peer_id)
+        elif status == "tie":
+            logger.info("[GAME] Tie detected → replay required")
 
         print(f"[SCORE] {peer_id}: {scores[peer_id]}")
 
@@ -151,23 +195,15 @@ class PingHandler(BaseHTTPRequestHandler):
 
 
     def handle_reveal(self, data, peer_id):
-        print("handle_reveal...")
+        logger.info(f"[REVEAL] Reveal received from {peer_id}")
+        logger.info(f"[REVEAL] Opponent move: {data['move']}")
 
         if not verify_commitment(
             data["move"],
             data["salt"],
             current_game["commitment"]
         ):
-            self.respond({"status": "invalid"})
-            return
-
-        # Commitment prüfen
-        if not verify_commitment(
-            data["move"],
-            data["salt"],
-            current_game["commitment"]
-        ):
-            print("❌ Commitment verification failed")
+            logger.warning("[SECURITY] Commitment verification FAILED")
             self.respond({"status": "invalid"})
             return
 
@@ -193,35 +229,11 @@ class PingHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-def get_own_spiffe_id():
-    try:
-        result = subprocess.run(
-            ['openssl', 'x509', '-in', f'{CERTS_PATH}/svid.pem', '-text', '-noout'],
-            capture_output=True, text=True, check=True
-        )
-        for line in result.stdout.split('\n'):
-            if 'URI:spiffe://' in line:
-                return line.split('URI:')[1].strip()
-    except Exception as e:
-        return "unknown"
-    return "unknown"
 
 
-def start_server(port, name):
-
-    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    context.load_cert_chain(f'{CERTS_PATH}/svid.pem', f'{CERTS_PATH}/svid_key.pem')
-    context.load_verify_locations(f'{CERTS_PATH}/svid_bundle.pem')
-    context.verify_mode = ssl.CERT_REQUIRED
-
-    server = ThreadingHTTPServer(('localhost', port), PingHandler)
-    server.socket = context.wrap_socket(server.socket, server_side=True)
-    
-    own_id = get_own_spiffe_id()
-    print(f"[{name}] Server started (SPIFFE ID: {own_id})")
-    print(f"[{name}] Listening on port {port}")
-    server.serve_forever()
-
+# =========================
+# Networking
+# =========================
 
 def send_to_peer(target_url, path, payload):
     print("send_to_peer")
@@ -242,16 +254,22 @@ def send_to_peer(target_url, path, payload):
         response = r.read()
     return response
 
-# ---------- Game flow ----------
+
+# =========================
+# Game Flow
+# =========================
+
 def start_new_round(target_url, peer_id):
-    print("start_new_round")
     global game_active
     game_active = True
+
     move = secrets.choice(MOVES)
     salt = secrets.token_hex(8)
     commitment = make_commitment(move, salt)
 
-    print(f"[CLIENT] New round → {move}")
+    logger.info("[GAME] New round started")
+    logger.info(f"[MOVE] Selected move: {move}")
+    logger.info(f"[COMMIT] Commitment created: {commitment[:12]}...")
 
     current_game.clear()
     current_game.update({
@@ -269,25 +287,40 @@ def start_new_round(target_url, peer_id):
     print(f"[CLIENT] Received response: {response.decode()}")
 
 
+def start_server(port, name):
+
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(f'{CERTS_PATH}/svid.pem', f'{CERTS_PATH}/svid_key.pem')
+    context.load_verify_locations(f'{CERTS_PATH}/svid_bundle.pem')
+    context.verify_mode = ssl.CERT_REQUIRED
+
+    server = ThreadingHTTPServer(('localhost', port), PingHandler)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    
+    own_id = get_own_spiffe_id()
+    logger.info(f"[BOOT] {name} started on port {port} My SPIFFE ID: {own_id}")
+    server.serve_forever()
+
+
 def start_game(target_url, name):
     own_id = get_own_spiffe_id()
     print(f"[{name}] My SPIFFE ID: {own_id}")
     time.sleep(2)
+
+    logger.info(f"[BOOT] Player started → {args.name}")
     
     action = ""
     while action != "x" and not game_active:
         try:
-            print("n für neues spiel beginnen und x für beenden")
-            action = input("Was möchtest du tun? n/x: ")
+            action = input("n = new game | x = exit: ")
             if action == "n":
-                #sendPing(target_url, name)
                 start_new_round(target_url, name)
         except Exception as e:
-            print(f"[{name}] ✗ Ping failed: {e}")
+            print(f"[{name}] ✗ Game start failed: {e}")
 
         time.sleep(5)
     
-    print("Spiel beendet")
+    logger.info("[SYSTEM] Shutting down")
 
 
 class PublicScoreHandler(BaseHTTPRequestHandler):
@@ -347,6 +380,7 @@ def main():
     time.sleep(1)
     global target_url
     target_url = args.target
+
     start_game(args.target, args.name)
 
 if __name__ == '__main__':

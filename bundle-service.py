@@ -6,7 +6,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import threading
 import json
 import os
-
+import logging
 
 BUNDLE_PATH = "/tmp/primary.bundle"   # oder /tmp/secondary.bundle
 
