@@ -2,6 +2,14 @@
 
 ## Secure Cross-Domain Rock-Paper-Scissors using SPIFFE, Federation and WebPKI
 
+### Short Description of the Files:
+### bundle-service.py 
+is the main file that is used to play federated game and contains the https Score Endpoint.
+### domain-game.py 
+is for playing in one domain.
+### bundle-service 
+is the https endpoint to download the bundle.
+
 ---
 
 # 1. Introduction
